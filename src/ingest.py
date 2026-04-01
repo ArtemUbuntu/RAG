@@ -1,102 +1,113 @@
 import os
-import requests
-from bs4 import BeautifulSoup
+import asyncio
+import aiohttp
+import html2text
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
-# Пример нескольких статей из FAQ
-URLS_TO_PARSE = [
-    "https://www.tbank.ru/bank/help/debit-cards/t-black/about-card/what-is-it/",
-    "https://www.tbank.ru/bank/help/debit-cards/t-black/tariffs/"
-]
-
 DATA_DIR = "data"
+URLS_FILE = "urls.txt"
 
-# Пример нескольких статей из FAQ
-URLS_TO_PARSE = [
-    "https://www.tbank.ru/bank/help/debit-cards/t-black/about-card/what-is-it/",
-    "https://www.tbank.ru/bank/help/debit-cards/t-black/tariffs/"
-]
+def load_urls_from_file(filepath=URLS_FILE):
+    """Считывает ссылки из файла, игнорируя комментарии и пустые строки."""
+    urls = []
+    if not os.path.exists(filepath):
+        print(f"Файл {filepath} не найден. Создайте его и добавьте ссылки.")
+        return urls
 
-# Поскольку Т-Банк может блокировать прямые запросы или возвращать 404 на старые URL,
-# для демонстрации и надежности мы замокаем несколько статей текстом.
-# В реальном проекте вы бы использовали Selenium, Playwright или официальное API (если есть)
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                urls.append(line)
+    return urls
 
-MOCK_ARTICLES = {
-    "what-is-t-black.txt": """
-# Что такое дебетовая карта T-Black (Т-Банк)
+async def fetch_url(session, url, converter):
+    """Асинхронно скачивает страницу и преобразует HTML в чистый текст."""
+    try:
+        # User-Agent часто обязателен, иначе сайты могут вернуть 403 Forbidden
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        async with session.get(url, headers=headers, timeout=15) as response:
+            if response.status == 200:
+                html = await response.text()
+                # Преобразуем HTML в Markdown/Text
+                text = converter.handle(html)
 
-T-Black — это наша лучшая дебетовая карта с кэшбэком и процентом на остаток.
-Ей можно расплачиваться в магазинах и интернете, снимать наличные, делать переводы и получать за это бонусы.
+                # Сохраняем результат в файл
+                filename = url.strip('/').replace('https://', '').replace('http://', '').replace('/', '_') + ".txt"
+                filepath = os.path.join(DATA_DIR, filename)
 
-Главные преимущества:
-Кэшбэк рублями до 30% у партнеров.
-Кэшбэк до 15% в выбранных категориях каждый месяц.
-1% кэшбэка за любые другие покупки.
-Бесплатное снятие наличных в банкоматах Т-Банка (до 500 000 ₽ за расчетный период).
-Бесплатное снятие от 3000 ₽ в любых банкоматах по всему миру.
-Процент на остаток до 5% годовых с подпиской Pro.
-Бесплатные переводы на карты других банков через Систему быстрых платежей (СБП).
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                return filepath
+            else:
+                print(f"Ошибка {response.status} при парсинге {url}")
+                return None
+    except Exception as e:
+        print(f"Исключение при парсинге {url}: {e}")
+        return None
 
-Как оформить карту?
-Оформить карту можно онлайн на нашем сайте или в приложении. Мы бесплатно доставим ее вам домой или в офис в удобное время.
-""",
-    "tariffs.txt": """
-# Тарифы по дебетовой карте T-Black
-
-Сколько стоит обслуживание карты?
-Обслуживание карты бесплатно, если:
-- на ваших счетах, вкладах и инвестициях каждый день суммарно лежит от 50 000 ₽;
-- вы взяли кредит наличными в Т-Банке;
-- у вас есть подписка Pro или Premium.
-В остальных случаях обслуживание стоит 99 ₽ в месяц.
-
-Оповещения об операциях
-Уведомления об операциях (СМС или пуши) стоят 99 ₽ в месяц. Если у вас есть подписка Pro или Premium, то уведомления бесплатны.
-
-Комиссия за снятие наличных
-В банкоматах Т-Банка — бесплатно до 500 000 ₽ за расчетный период, далее комиссия 2% (минимум 90 ₽).
-В сторонних банкоматах — бесплатно при снятии от 3000 ₽ до 100 000 ₽ за расчетный период. При снятии меньше 3000 ₽ комиссия составит 90 ₽. При превышении лимита в 100 000 ₽ комиссия составит 2% (минимум 90 ₽).
-"""
-}
-
-def fetch_and_save_articles():
-    """Вместо реального скачивания (которое может упасть из-за защиты сайта), сохраняем моковые данные."""
+async def fetch_all_urls(urls):
+    """Запускает параллельное скачивание всех ссылок."""
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
 
+    # Настраиваем конвертер html2text для чистого извлечения текста (без картинок, ссылок и тд)
+    converter = html2text.HTML2Text()
+    converter.ignore_links = True
+    converter.ignore_images = True
+    converter.ignore_tables = False
+    converter.bypass_tables = False
+
     saved_files = []
 
-    for filename, content in MOCK_ARTICLES.items():
-        filepath = os.path.join(DATA_DIR, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content.strip())
+    # Используем aiohttp для параллельных запросов
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for url in urls:
+            tasks.append(fetch_url(session, url, converter))
 
-        saved_files.append(filepath)
-        print(f"Сохранено: {filepath}")
+        print(f"Начинаем параллельное скачивание {len(urls)} страниц...")
+        # Собираем результаты
+        results = await asyncio.gather(*tasks)
 
+        for res in results:
+            if res:
+                saved_files.append(res)
+
+    print(f"Успешно скачано {len(saved_files)} страниц.")
     return saved_files
+
+def fetch_and_save_articles():
+    """Синхронная обертка для асинхронного парсинга."""
+    urls = load_urls_from_file()
+    if not urls:
+        print("Нет ссылок для парсинга.")
+        return []
+
+    return asyncio.run(fetch_all_urls(urls))
 
 def load_and_chunk_documents(data_dir=DATA_DIR):
     """Загружает сохраненные тексты и разбивает их на чанки."""
     documents = []
 
-    # Читаем все txt файлы из папки data
+    if not os.path.exists(data_dir):
+        print("Папка с данными пуста. Сначала запустите парсинг.")
+        return []
+
     for filename in os.listdir(data_dir):
         if filename.endswith(".txt"):
             filepath = os.path.join(data_dir, filename)
             loader = TextLoader(filepath, encoding='utf-8')
             documents.extend(loader.load())
 
-    print(f"Загружено {len(documents)} документов.")
+    print(f"Загружено {len(documents)} документов из локального хранилища.")
 
-    # Разбиваем текст на куски (чанки)
-    # chunk_size - размер куска в символах
-    # chunk_overlap - перекрытие кусков, чтобы не потерять контекст на стыке
+    # Для веб-страниц хорошо подходит разделитель по абзацам
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
+        chunk_size=800,
+        chunk_overlap=100,
         separators=["\n\n", "\n", ".", " ", ""]
     )
 
@@ -106,10 +117,10 @@ def load_and_chunk_documents(data_dir=DATA_DIR):
     return chunks
 
 if __name__ == "__main__":
-    print("Начинаем сбор данных...")
+    print("=== Старт парсинга ===")
     fetch_and_save_articles()
 
-    print("\nРазбиваем на чанки...")
+    print("\n=== Старт разбивки на чанки ===")
     chunks = load_and_chunk_documents()
 
     if chunks:

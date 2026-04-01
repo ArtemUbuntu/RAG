@@ -20,12 +20,12 @@ def main():
     st.markdown("Этот бот отвечает на вопросы по дебетовой карте T-Black, основываясь на базе знаний (FAQ).")
 
     # Проверка API ключа
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        st.warning("ВНИМАНИЕ: Не установлен `OPENAI_API_KEY`. Ответы генерироваться не будут. Пожалуйста, добавьте его в файл `.env` или укажите ниже.")
-        user_api_key = st.text_input("Введите ваш OpenAI API Key:", type="password")
+        st.warning("ВНИМАНИЕ: Не установлен `GROQ_API_KEY`. Ответы генерироваться не будут. Пожалуйста, добавьте его в файл `.env` или укажите ниже.")
+        user_api_key = st.text_input("Введите ваш Groq API Key:", type="password")
         if user_api_key:
-            os.environ["OPENAI_API_KEY"] = user_api_key
+            os.environ["GROQ_API_KEY"] = user_api_key
             st.success("Ключ установлен для этой сессии! Можете задавать вопросы.")
         else:
             st.stop()

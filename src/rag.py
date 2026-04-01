@@ -1,7 +1,7 @@
 import os
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -28,6 +28,10 @@ def create_vector_db():
     embeddings = get_embeddings_model()
 
     print("Создаем векторную базу данных Chroma...")
+    if not chunks:
+        print("ВНИМАНИЕ: Нет чанков для создания базы данных. Проверьте правильность ссылок.")
+        return None
+
     # Создаем БД. Если папка уже существует, она будет перезаписана или дополнена
     db = Chroma.from_documents(
         documents=chunks,
@@ -60,20 +64,18 @@ def setup_rag_pipeline():
     retriever = db.as_retriever(search_kwargs={"k": 3}) # Ищем топ-3 подходящих куска текста
 
     # 2. Инициализируем LLM (языковую модель)
-    # Здесь используется OpenAI. Чтобы это работало, нужен ключ в переменной окружения OPENAI_API_KEY.
-    # Для портфолио можно использовать бесплатные альтернативы (например HuggingFaceHub или локальную Llama).
-    # Но для качества и простоты пока возьмем GPT-4o-mini (или GPT-3.5)
+    # Здесь используется Groq для быстрой генерации ответа.
 
     # ПРОВЕРКА КЛЮЧА
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        print("ВНИМАНИЕ: Не установлен OPENAI_API_KEY! Модель может не работать.")
+        print("ВНИМАНИЕ: Не установлен GROQ_API_KEY! Модель может не работать.")
 
     # Мы используем фиктивный ключ для демонстрации, если его нет
-    # В реальности нужно задать: export OPENAI_API_KEY="sk-..."
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0, # 0 означает, что модель не будет фантазировать
+    # В реальности нужно задать: export GROQ_API_KEY="..."
+    llm = ChatGroq(
+        model="llama3-8b-8192",  # Модель от Meta, доступная через Groq API
+        temperature=0,           # 0 означает, что модель не будет фантазировать
         api_key=api_key if api_key else "dummy_key"
     )
 
@@ -116,7 +118,7 @@ def answer_question(question: str):
         response = chain.invoke(question)
         print(f"Ответ: {response}")
     except Exception as e:
-        print(f"Произошла ошибка (возможно, нужен реальный OPENAI_API_KEY): {e}")
+        print(f"Произошла ошибка (возможно, нужен реальный GROQ_API_KEY): {e}")
 
 if __name__ == "__main__":
     print("Создаем базу данных (если еще не создана)...")
