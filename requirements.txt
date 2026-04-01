@@ -1,0 +1,12 @@
+langchain
+langchain-community
+langchain-openai
+langchain-chroma
+langchain-huggingface
+chromadb
+sentence-transformers
+beautifulsoup4
+requests
+streamlit
+python-dotenv
+tiktoken
